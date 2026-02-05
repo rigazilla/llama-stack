@@ -1132,7 +1132,7 @@ params = {
 Infinispan supports two authentication mechanisms:
 
 - **Digest Authentication** (recommended for HTTP): More secure than basic auth over HTTP
-- **Basic Authentication** (recommended for HTTPS only): Simple username/password authentication
+- **Basic Authentication** (HTTPS only): Simple username/password authentication
 
 Set the `auth_mechanism` parameter to either `"digest"` or `"basic"`.
 

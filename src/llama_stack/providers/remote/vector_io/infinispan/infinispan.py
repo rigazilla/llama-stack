@@ -149,12 +149,15 @@ class InfinispanIndex(EmbeddingIndex):
             key = chunk.chunk_id
 
             # Map EmbeddedChunk to VectorItem protobuf schema
-            # VectorItem fields: id, floatVector, text
+            # VectorItem fields: id, floatVector, text, metadata, chunkMetadata, embeddingModel
             vector_item = {
                 "_type": f"VectorItem{self.embedding_dimension}",
                 "id": chunk.chunk_id,
                 "floatVector": chunk.embedding.tolist() if hasattr(chunk.embedding, "tolist") else list(chunk.embedding),
                 "text": chunk.content if hasattr(chunk, "content") else "",
+                "metadata": json.dumps(chunk.metadata) if chunk.metadata else "{}",
+                "chunkMetadata": json.dumps(chunk.chunk_metadata.model_dump()) if chunk.chunk_metadata else "{}",
+                "embeddingModel": chunk.embedding_model if hasattr(chunk, "embedding_model") else "unknown",
             }
 
             # Insert into Infinispan cache
@@ -249,23 +252,41 @@ class InfinispanIndex(EmbeddingIndex):
             hit_data = hit['*']
 
             # Reconstruct EmbeddedChunk from the hit data
-            # The hit contains the VectorItem fields: id, floatVector, text
+            # The hit contains the VectorItem fields: id, floatVector, text, metadata, chunkMetadata, embeddingModel
             chunk_id = hit_data.get("id")
             text = hit_data.get("text", "")
             float_vector = hit_data.get("floatVector", [])
+            metadata_str = hit_data.get("metadata", "{}")
+            chunk_metadata_str = hit_data.get("chunkMetadata", "{}")
+            embedding_model = hit_data.get("embeddingModel", "unknown")
 
             if not chunk_id or not float_vector:
                 log.warning(f"Skipping incomplete hit: {hit_data}")
                 continue
 
+            # Deserialize metadata
+            try:
+                metadata = json.loads(metadata_str) if metadata_str else {}
+            except json.JSONDecodeError:
+                log.warning(f"Failed to parse metadata for chunk {chunk_id}, using empty dict")
+                metadata = {}
+
+            # Deserialize chunk_metadata
+            try:
+                chunk_metadata = json.loads(chunk_metadata_str) if chunk_metadata_str else {}
+            except json.JSONDecodeError:
+                log.warning(f"Failed to parse chunk_metadata for chunk {chunk_id}, using empty dict")
+                chunk_metadata = {}
+
             # Create EmbeddedChunk object
             chunk_dict = {
                 "chunk_id": chunk_id,
-                "document_id": chunk_id,  # Using chunk_id as fallback
+                "document_id": chunk_metadata.get("document_id", chunk_id),  # Get from chunk_metadata or use chunk_id as fallback
                 "embedding": float_vector,
                 "content": text,
-                "chunk_metadata": {},  # No metadata stored in simplified schema
-                "embedding_model": "unknown",  # Model info not stored
+                "metadata": metadata,
+                "chunk_metadata": chunk_metadata,
+                "embedding_model": embedding_model,
                 "embedding_dimension": len(float_vector),
             }
 
@@ -337,25 +358,41 @@ class InfinispanIndex(EmbeddingIndex):
             hit_data = hit['*']
 
             # Reconstruct EmbeddedChunk from the hit data
-            # The hit contains the VectorItem fields: id, floatVector, text
+            # The hit contains the VectorItem fields: id, floatVector, text, metadata, chunkMetadata, embeddingModel
             chunk_id = hit_data.get("id")
             text = hit_data.get("text", "")
             float_vector = hit_data.get("floatVector", [])
+            metadata_str = hit_data.get("metadata", "{}")
+            chunk_metadata_str = hit_data.get("chunkMetadata", "{}")
+            embedding_model = hit_data.get("embeddingModel", "unknown")
 
             if not chunk_id or not float_vector:
                 log.warning(f"Skipping incomplete hit: {hit_data}")
                 continue
 
+            # Deserialize metadata
+            try:
+                metadata = json.loads(metadata_str) if metadata_str else {}
+            except json.JSONDecodeError:
+                log.warning(f"Failed to parse metadata for chunk {chunk_id}, using empty dict")
+                metadata = {}
+
+            # Deserialize chunk_metadata
+            try:
+                chunk_metadata = json.loads(chunk_metadata_str) if chunk_metadata_str else {}
+            except json.JSONDecodeError:
+                log.warning(f"Failed to parse chunk_metadata for chunk {chunk_id}, using empty dict")
+                chunk_metadata = {}
+
             # Create EmbeddedChunk object
-            # Note: We don't have document_id or metadata stored separately,
-            # so we'll use chunk_id for both document_id and chunk_id
             chunk_dict = {
                 "chunk_id": chunk_id,
-                "document_id": chunk_id,  # Using chunk_id as fallback
+                "document_id": chunk_metadata.get("document_id", chunk_id),
                 "embedding": float_vector,
                 "content": text,
-                "chunk_metadata": {},  # No metadata stored in simplified schema
-                "embedding_model": "unknown",  # Model info not stored
+                "metadata": metadata,
+                "chunk_metadata": chunk_metadata,
+                "embedding_model": embedding_model,
                 "embedding_dimension": len(float_vector),
             }
 
@@ -631,7 +668,7 @@ class InfinispanVectorIOAdapter(OpenAIVectorStoreMixin, VectorIO, VectorStoresPr
             vector_store_id: Identifier of the vector store to delete
         """
         if vector_store_id not in self.cache:
-            log.warning(f"Vector DB {vector_store_id} not found")
+            log.debug(f"Vector DB {vector_store_id} not found in cache, skipping deletion")
             return
 
         # Delete from Infinispan

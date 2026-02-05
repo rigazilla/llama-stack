@@ -15,6 +15,7 @@ from llama_stack_api import json_schema_type
 @json_schema_type
 class InfinispanVectorIOConfig(BaseModel):
     url: str = Field(
+        default="http://localhost:11222",
         description="Infinispan server URL (e.g., http://localhost:11222)"
     )
     username: str | None = Field(
