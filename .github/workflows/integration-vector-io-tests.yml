@@ -163,7 +163,7 @@ jobs:
             -p 11222:11222 \
             -e USER=admin \
             -e PASS=password \
-            infinispan/server:latest
+            infinispan/server:16.1.0
 
       - name: Wait for Infinispan to be ready
         if: matrix.vector-io-provider == 'remote::infinispan'
